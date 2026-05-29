@@ -76,6 +76,8 @@ export default function App() {
   const [endDate, setEndDate] = useState(initialWeek.end);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [memberMoveTargets, setMemberMoveTargets] = useState<Record<string, number>>({});
+  const [locationMoveTargets, setLocationMoveTargets] = useState<Record<string, number>>({});
   const [taskForm] = Form.useForm<TaskFormValue>();
   const [memberForm] = Form.useForm<Partial<Member>>();
   const [locationForm] = Form.useForm<Partial<Location>>();
@@ -100,8 +102,10 @@ export default function App() {
     return set;
   }, [conflicts]);
 
-  const updateData = (updater: typeof setData extends (value: infer T) => void ? T : never) => {
-    setData(updater);
+  const clampPosition = (value: number | null | undefined, max: number) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return 1;
+    return Math.max(1, Math.min(max, Math.trunc(numericValue)));
   };
 
   const openCreateTask = () => {
@@ -164,17 +168,29 @@ export default function App() {
   };
 
   const moveMember = (member: Member, target: number) => {
+    const nextTarget = clampPosition(target, data.members.length);
     setData((current) => ({
       ...current,
-      members: moveItemToPosition(current.members, member.sortOrder, target),
+      members: moveItemToPosition(current.members, member.sortOrder, nextTarget),
     }));
+    setMemberMoveTargets((current) => {
+      const next = { ...current };
+      delete next[member.id];
+      return next;
+    });
   };
 
   const moveLocation = (location: Location, target: number) => {
+    const nextTarget = clampPosition(target, data.locations.length);
     setData((current) => ({
       ...current,
-      locations: moveItemToPosition(current.locations, location.sortOrder, target),
+      locations: moveItemToPosition(current.locations, location.sortOrder, nextTarget),
     }));
+    setLocationMoveTargets((current) => {
+      const next = { ...current };
+      delete next[location.id];
+      return next;
+    });
   };
 
   const submitMember = async () => {
@@ -324,18 +340,30 @@ export default function App() {
     },
     {
       title: '排序',
-      width: 260,
+      width: 360,
       render: (_, member) => (
         <Space>
-          <Button title="上移" icon={<ArrowUpOutlined />} disabled={member.sortOrder === 1} onClick={() => moveMember(member, member.sortOrder - 1)} />
-          <Button title="下移" icon={<ArrowDownOutlined />} disabled={member.sortOrder === data.members.length} onClick={() => moveMember(member, member.sortOrder + 1)} />
+          <Button title="上移" icon={<ArrowUpOutlined />} disabled={member.sortOrder === 1} onClick={() => moveMember(member, member.sortOrder - 1)}>
+            上移
+          </Button>
+          <Button title="下移" icon={<ArrowDownOutlined />} disabled={member.sortOrder === data.members.length} onClick={() => moveMember(member, member.sortOrder + 1)}>
+            下移
+          </Button>
           <InputNumber
             min={1}
             max={data.members.length}
-            value={member.sortOrder}
-            onPressEnter={(event) => moveMember(member, Number((event.target as HTMLInputElement).value))}
-            onBlur={(event) => moveMember(member, Number(event.target.value))}
+            value={memberMoveTargets[member.id] ?? member.sortOrder}
+            onChange={(value) =>
+              setMemberMoveTargets((current) => ({
+                ...current,
+                [member.id]: clampPosition(value, data.members.length),
+              }))
+            }
+            onPressEnter={() => moveMember(member, memberMoveTargets[member.id] ?? member.sortOrder)}
           />
+          <Button onClick={() => moveMember(member, memberMoveTargets[member.id] ?? member.sortOrder)}>
+            移动
+          </Button>
         </Space>
       ),
     },
@@ -394,18 +422,30 @@ export default function App() {
     },
     {
       title: '排序',
-      width: 260,
+      width: 360,
       render: (_, location) => (
         <Space>
-          <Button title="上移" icon={<ArrowUpOutlined />} disabled={location.sortOrder === 1} onClick={() => moveLocation(location, location.sortOrder - 1)} />
-          <Button title="下移" icon={<ArrowDownOutlined />} disabled={location.sortOrder === data.locations.length} onClick={() => moveLocation(location, location.sortOrder + 1)} />
+          <Button title="上移" icon={<ArrowUpOutlined />} disabled={location.sortOrder === 1} onClick={() => moveLocation(location, location.sortOrder - 1)}>
+            上移
+          </Button>
+          <Button title="下移" icon={<ArrowDownOutlined />} disabled={location.sortOrder === data.locations.length} onClick={() => moveLocation(location, location.sortOrder + 1)}>
+            下移
+          </Button>
           <InputNumber
             min={1}
             max={data.locations.length}
-            value={location.sortOrder}
-            onPressEnter={(event) => moveLocation(location, Number((event.target as HTMLInputElement).value))}
-            onBlur={(event) => moveLocation(location, Number(event.target.value))}
+            value={locationMoveTargets[location.id] ?? location.sortOrder}
+            onChange={(value) =>
+              setLocationMoveTargets((current) => ({
+                ...current,
+                [location.id]: clampPosition(value, data.locations.length),
+              }))
+            }
+            onPressEnter={() => moveLocation(location, locationMoveTargets[location.id] ?? location.sortOrder)}
           />
+          <Button onClick={() => moveLocation(location, locationMoveTargets[location.id] ?? location.sortOrder)}>
+            移动
+          </Button>
         </Space>
       ),
     },
@@ -542,8 +582,18 @@ export default function App() {
         </Form.Item>
         <Button type="primary" htmlType="submit" icon={<SaveOutlined />}>保存成员</Button>
         <Button onClick={() => memberForm.resetFields()}>清空</Button>
+        <Button
+          icon={<SaveOutlined />}
+          onClick={() => {
+            saveData(data);
+            message.success('成员排序已保存');
+          }}
+        >
+          保存排序
+        </Button>
       </Form>
-      <Table rowKey="id" columns={memberColumns} dataSource={orderedMembers} pagination={false} scroll={{ y: 620, x: 980 }} />
+      <Alert type="info" showIcon message="排序会自动连续编号；输入目标位置后点击“移动”，也可以用上移、下移调整。" />
+      <Table rowKey="id" columns={memberColumns} dataSource={orderedMembers} pagination={false} scroll={{ y: 620, x: 1080 }} />
     </Space>
   );
 
@@ -559,8 +609,18 @@ export default function App() {
         </Form.Item>
         <Button type="primary" htmlType="submit" icon={<SaveOutlined />}>保存地点</Button>
         <Button onClick={() => locationForm.resetFields()}>清空</Button>
+        <Button
+          icon={<SaveOutlined />}
+          onClick={() => {
+            saveData(data);
+            message.success('地点排序已保存');
+          }}
+        >
+          保存排序
+        </Button>
       </Form>
-      <Table rowKey="id" columns={locationColumns} dataSource={orderedLocations} pagination={false} scroll={{ y: 620, x: 820 }} />
+      <Alert type="info" showIcon message="排序会自动连续编号；输入目标位置后点击“移动”，也可以用上移、下移调整。" />
+      <Table rowKey="id" columns={locationColumns} dataSource={orderedLocations} pagination={false} scroll={{ y: 620, x: 980 }} />
     </Space>
   );
 
